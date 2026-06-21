@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Speeder",
+  "name": "Speedy Snail",
   "version": "0.1.0",
-  "description": "Hold ArrowRight on YouTube to fast-forward and keep playback at the best display-matched quality.",
+  "description": "Hold ArrowRight on supported video sites to fast-forward; YouTube can also stay at the best display-matched quality.",
   "permissions": ["storage", "system.display"],
   "action": {
-    "default_title": "Speeder",
+    "default_title": "Speedy Snail",
     "default_popup": "src/popup.html",
     "default_icon": {
       "16": "assets/icons/icon-16.png",
@@ -29,6 +29,20 @@
       "js": ["src/content.js"],
       "css": ["src/styles.css"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://pan.baidu.com/*"],
+      "js": ["src/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://masterclass.com/*", "https://*.masterclass.com/*"],
+      "js": ["src/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_start",
+      "all_frames": true
     }
   ],
   "web_accessible_resources": [

@@ -6,6 +6,17 @@
     autoQuality: true
   };
   const RATE_OPTIONS = [1.5, 2, 3];
+  const USAGE_STATS_KEY = "speederUsageStats";
+  const DEFAULT_USAGE_STATS = {
+    totalSavedMs: 0,
+    totalFastForwardMs: 0,
+    sessionCount: 0,
+    lastRate: 0,
+    lastBaseRate: 0,
+    lastDurationMs: 0,
+    lastSavedMs: 0,
+    lastUpdatedAt: 0
+  };
   const HOLD_DELAY_MS = 250;
   const SEEK_SECONDS = 5;
   const OVERLAY_ID = "speeder-long-press-overlay";
@@ -25,6 +36,7 @@
     "hd2880",
     "highres"
   ];
+  const isYouTube = window.location.hostname === "www.youtube.com";
 
   let settings = { ...DEFAULT_SETTINGS };
   let holdTimer = null;
@@ -32,12 +44,17 @@
   let fastForwarding = false;
   let savedPlaybackRate = null;
   let activeVideo = null;
+  let fastForwardStartedAt = 0;
+  let fastForwardStartCurrentTime = 0;
+  let fastForwardBaseRate = 1;
+  let fastForwardAppliedRate = DEFAULT_SETTINGS.fastRate;
   let qualityTimer = null;
   let qualityApplyTimer = null;
   let qualityApplyInFlight = false;
   let qualityRequestId = 0;
   let pageBridgeReady = false;
   let pageBridgePromise = null;
+  let usageStatsWriteQueue = Promise.resolve();
 
   const editableSelector = [
     "input",
@@ -69,10 +86,69 @@
 
   function getVideo() {
     const videos = Array.from(document.querySelectorAll("video"));
-    return videos.find((video) => !video.paused || video.readyState > 0) || videos[0] || null;
+    const rankedVideos = videos
+      .map((video, index) => ({
+        video,
+        index,
+        score: getVideoScore(video)
+      }))
+      .sort((left, right) => right.score - left.score || left.index - right.index);
+
+    return rankedVideos[0]?.video || null;
   }
 
-  function stopYouTubeShortcut(event) {
+  function getVideoScore(video) {
+    const rect = video.getBoundingClientRect();
+    const hasVisibleArea = rect.width > 1 && rect.height > 1;
+    const visibleArea = hasVisibleArea ? rect.width * rect.height : 0;
+    const style = window.getComputedStyle(video);
+    const isVisible =
+      hasVisibleArea &&
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      Number(style.opacity) !== 0;
+    const intersectsViewport =
+      isVisible &&
+      rect.bottom > 0 &&
+      rect.right > 0 &&
+      rect.top < window.innerHeight &&
+      rect.left < window.innerWidth;
+
+    let score = 0;
+
+    if (!video.paused && !video.ended) {
+      score += 1000;
+    }
+
+    if (video.readyState > 0) {
+      score += 300;
+    }
+
+    if (isVisible) {
+      score += 200;
+    }
+
+    if (intersectsViewport) {
+      score += 200;
+    }
+
+    if (video.currentSrc || video.src) {
+      score += 100;
+    }
+
+    return score + Math.min(visibleArea / 1000, 200);
+  }
+
+  function formatRate(rate) {
+    const value = Number(rate);
+    if (!Number.isFinite(value) || value <= 0) {
+      return "1X";
+    }
+
+    return Number.isInteger(value) ? `${value}X` : `${value.toFixed(1)}X`;
+  }
+
+  function stopPageShortcut(event) {
     event.preventDefault();
     event.stopImmediatePropagation();
   }
@@ -82,7 +158,7 @@
       return;
     }
 
-    stopYouTubeShortcut(event);
+    stopPageShortcut(event);
 
     if (arrowDown) {
       return;
@@ -102,7 +178,7 @@
       return;
     }
 
-    stopYouTubeShortcut(event);
+    stopPageShortcut(event);
 
     if (holdTimer) {
       window.clearTimeout(holdTimer);
@@ -125,6 +201,10 @@
     activeVideo = video;
     savedPlaybackRate = video.playbackRate || 1;
     video.playbackRate = settings.fastRate;
+    fastForwardStartedAt = window.performance.now();
+    fastForwardStartCurrentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    fastForwardBaseRate = savedPlaybackRate || 1;
+    fastForwardAppliedRate = settings.fastRate;
     fastForwarding = true;
     showOverlay();
   }
@@ -133,6 +213,7 @@
     if (!fastForwarding) {
       hideOverlay();
       savedPlaybackRate = null;
+      resetFastForwardSession();
       return;
     }
 
@@ -141,9 +222,18 @@
       video.playbackRate = savedPlaybackRate;
     }
 
+    recordFastForwardUsage(video);
     fastForwarding = false;
     savedPlaybackRate = null;
+    resetFastForwardSession();
     hideOverlay();
+  }
+
+  function resetFastForwardSession() {
+    fastForwardStartedAt = 0;
+    fastForwardStartCurrentTime = 0;
+    fastForwardBaseRate = 1;
+    fastForwardAppliedRate = settings.fastRate;
   }
 
   function seekForward() {
@@ -193,14 +283,17 @@
 
     overlay.id = OVERLAY_ID;
     overlay.setAttribute("aria-hidden", "true");
+    overlay.textContent = formatRate(settings.fastRate);
 
     return overlay;
   }
 
   function updateOverlayRate(overlay = document.getElementById(OVERLAY_ID)) {
-    if (overlay) {
-      overlay.textContent = `${settings.fastRate}x`;
+    if (!overlay) {
+      return;
     }
+
+    overlay.textContent = formatRate(fastForwardAppliedRate || settings.fastRate);
   }
 
   function hideOverlay() {
@@ -223,6 +316,95 @@
     }
 
     return null;
+  }
+
+  function sanitizeUsageStats(items = {}) {
+    const toMs = (value) => Math.max(0, Math.round(Number(value) || 0));
+    const toRate = (value) => {
+      const rate = Number(value);
+      return Number.isFinite(rate) && rate > 0 ? rate : 0;
+    };
+    const toCount = (value) => Math.max(0, Math.round(Number(value) || 0));
+
+    return {
+      totalSavedMs: toMs(items.totalSavedMs),
+      totalFastForwardMs: toMs(items.totalFastForwardMs),
+      sessionCount: toCount(items.sessionCount),
+      lastRate: toRate(items.lastRate),
+      lastBaseRate: toRate(items.lastBaseRate),
+      lastDurationMs: toMs(items.lastDurationMs),
+      lastSavedMs: toMs(items.lastSavedMs),
+      lastUpdatedAt: toMs(items.lastUpdatedAt)
+    };
+  }
+
+  function readUsageStats() {
+    return new Promise((resolve) => {
+      if (typeof chrome === "undefined" || !chrome.storage?.local) {
+        resolve({ ...DEFAULT_USAGE_STATS });
+        return;
+      }
+
+      chrome.storage.local.get({ [USAGE_STATS_KEY]: DEFAULT_USAGE_STATS }, (items) => {
+        const error = chrome.runtime?.lastError;
+        if (error) {
+          resolve({ ...DEFAULT_USAGE_STATS });
+          return;
+        }
+
+        resolve(sanitizeUsageStats(items[USAGE_STATS_KEY]));
+      });
+    });
+  }
+
+  function writeUsageStats(nextStats) {
+    return new Promise((resolve) => {
+      if (typeof chrome === "undefined" || !chrome.storage?.local) {
+        resolve();
+        return;
+      }
+
+      chrome.storage.local.set({ [USAGE_STATS_KEY]: sanitizeUsageStats(nextStats) }, () => {
+        resolve();
+      });
+    });
+  }
+
+  async function recordFastForwardUsage(video) {
+    if (!video || !fastForwardStartedAt) {
+      return;
+    }
+
+    const durationMs = Math.max(0, Math.round(window.performance.now() - fastForwardStartedAt));
+    const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : fastForwardStartCurrentTime;
+    const contentProgressSeconds = Math.max(0, currentTime - fastForwardStartCurrentTime);
+    const baseRate = Math.max(0.1, fastForwardBaseRate || 1);
+    const fastRate = Math.max(0.1, fastForwardAppliedRate || settings.fastRate || 1);
+    const savedMs = Math.max(
+      0,
+      Math.round(contentProgressSeconds * 1000 * (1 / baseRate - 1 / fastRate))
+    );
+
+    if (!durationMs && !savedMs) {
+      return;
+    }
+
+    usageStatsWriteQueue = usageStatsWriteQueue.then(async () => {
+      const currentStats = await readUsageStats();
+      await writeUsageStats({
+        ...currentStats,
+        totalSavedMs: currentStats.totalSavedMs + savedMs,
+        totalFastForwardMs: currentStats.totalFastForwardMs + durationMs,
+        sessionCount: currentStats.sessionCount + 1,
+        lastRate: fastRate,
+        lastBaseRate: baseRate,
+        lastDurationMs: durationMs,
+        lastSavedMs: savedMs,
+        lastUpdatedAt: Date.now()
+      });
+    }).catch(() => {});
+
+    await usageStatsWriteQueue;
   }
 
   function sanitizeSettings(items) {
@@ -278,9 +460,10 @@
         if (video) {
           video.playbackRate = settings.fastRate;
         }
+        fastForwardAppliedRate = settings.fastRate;
       }
 
-      if (settings.autoQuality) {
+      if (isYouTube && settings.autoQuality) {
         startQualityWatcher();
       } else {
         stopQualityWatcher();
@@ -423,7 +606,7 @@
   }
 
   function scheduleQualityApply(delay = QUALITY_APPLY_DELAY_MS) {
-    if (!settings.autoQuality) {
+    if (!isYouTube || !settings.autoQuality) {
       return;
     }
 
@@ -438,7 +621,7 @@
   }
 
   async function applyBestQuality() {
-    if (!settings.autoQuality || qualityApplyInFlight || !getVideo()) {
+    if (!isYouTube || !settings.autoQuality || qualityApplyInFlight || !getVideo()) {
       return;
     }
 
@@ -610,8 +793,9 @@
   async function init() {
     settings = await readSettings();
     watchSettings();
+    resetFastForwardSession();
 
-    if (settings.autoQuality) {
+    if (isYouTube && settings.autoQuality) {
       startQualityWatcher();
     }
   }
@@ -629,8 +813,10 @@
       scheduleQualityApply();
     }
   });
-  document.addEventListener("yt-navigate-start", cleanupInteraction);
-  document.addEventListener("yt-navigate-finish", () => scheduleQualityApply());
+  if (isYouTube) {
+    document.addEventListener("yt-navigate-start", cleanupInteraction);
+    document.addEventListener("yt-navigate-finish", () => scheduleQualityApply());
+  }
 
   init();
 })();

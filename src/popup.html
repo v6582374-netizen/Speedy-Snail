@@ -3,17 +3,17 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Speeder</title>
+    <title>Speedy Snail</title>
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
     <main class="popup-shell">
       <header class="popup-header">
         <div class="brand-mark" aria-hidden="true">
-          <img src="../assets/icons/icon-32.png" alt="">
+          <img src="../assets/icons/icon.svg" alt="">
         </div>
         <div>
-          <h1>Speeder</h1>
+          <h1>Speedy Snail</h1>
           <p>长按右方向键</p>
         </div>
       </header>
@@ -38,6 +38,35 @@
         <button type="button" id="quality-toggle" class="switch" role="switch" aria-checked="true" aria-label="最高画质">
           <span></span>
         </button>
+      </section>
+
+      <section class="setting-group usage-group" aria-labelledby="usage-title">
+        <div class="section-heading">
+          <h2 id="usage-title">省时统计</h2>
+          <span id="usage-session-count">0 次</span>
+        </div>
+        <div class="usage-highlight">
+          <span>累计节省</span>
+          <strong id="usage-total-saved">0秒</strong>
+        </div>
+        <div class="usage-metrics">
+          <div class="usage-metric">
+            <span>累计快进</span>
+            <strong id="usage-total-fast-forward">0秒</strong>
+          </div>
+          <div class="usage-metric">
+            <span>最近倍率</span>
+            <strong id="usage-last-rate">-</strong>
+          </div>
+          <div class="usage-metric">
+            <span>最近时长</span>
+            <strong id="usage-last-duration">-</strong>
+          </div>
+          <div class="usage-metric">
+            <span>最近省时</span>
+            <strong id="usage-last-saved">-</strong>
+          </div>
+        </div>
       </section>
 
       <p id="status" class="status" role="status" aria-live="polite"></p>

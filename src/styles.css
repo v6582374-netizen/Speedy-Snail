@@ -1,39 +1,44 @@
 .speeder-overlay-host {
   position: relative;
+  container-type: inline-size;
 }
 
 #speeder-long-press-overlay {
   position: absolute;
-  top: 50%;
-  right: clamp(14px, 3vw, 32px);
+  inset: 0 0 0 auto;
   z-index: 2147483647;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 30px;
-  min-height: 15px;
-  padding: 0 5px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 4px;
-  background: rgba(38, 40, 44, 0.66);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-  color: rgba(246, 247, 248, 0.9);
+  width: min(10%, 96px);
+  height: 100%;
+  padding: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.08)),
+    rgba(0, 0, 0, 0.06);
+  box-shadow: none;
+  color: #ffd700;
   font-family: Roboto, Arial, sans-serif;
-  font-size: 9px;
-  font-weight: 650;
-  line-height: 1;
+  font-size: clamp(10px, 3.4cqw, 18px);
+  font-weight: 700;
+  line-height: 1.2;
   opacity: 0;
   pointer-events: none;
-  transform: translate(4px, -50%);
+  transform: translateX(2px);
   transition:
-    opacity 110ms ease,
-    transform 110ms ease;
+    opacity 140ms ease,
+    transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
   white-space: nowrap;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  letter-spacing: 0;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(56, 34, 0, 0.35);
+  -webkit-backdrop-filter: blur(8px) saturate(1.04);
+  backdrop-filter: blur(8px) saturate(1.04);
 }
 
 #speeder-long-press-overlay.speeder-visible {
-  opacity: 1;
-  transform: translate(0, -50%);
+  opacity: 0.5;
+  transform: translateX(0);
 }
